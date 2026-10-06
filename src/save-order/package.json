@@ -1,0 +1,8 @@
+{
+  "name": "save-order",
+  "version": "1.0.0",
+  "description": "Lambda function to save orders to the Orders DynamoDB table.",
+  "type": "module",
+  "main": "index.mjs",
+  "license": "MIT"
+}

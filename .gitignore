@@ -1,0 +1,13 @@
+# SAM build artifacts
+.aws-sam/
+
+# Node dependencies
+node_modules/
+
+# Environment / local secrets
+.env
+*.local
+
+# OS files
+.DS_Store
+Thumbs.db

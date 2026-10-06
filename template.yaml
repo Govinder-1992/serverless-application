@@ -1,0 +1,188 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  SAM template that provisions an Amazon DynamoDB "Orders" table with on-demand
+  (pay-per-request) capacity, a Node.js Lambda function to save orders, and an
+  Amazon API Gateway REST API exposing POST /orders.
+
+Globals:
+  Function:
+    Timeout: 10
+    MemorySize: 128
+    Runtime: nodejs24.x
+    Tracing: Active
+
+Resources:
+  OrdersUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: OrdersUserPool
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+
+  OrdersUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: OrdersUserPoolClient
+      UserPoolId: !Ref OrdersUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+
+  OrdersApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: OrdersApi
+      StageName: prod
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt OrdersUserPool.Arn
+
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Orders
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: orderId
+          AttributeType: S
+        - AttributeName: itemId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: orderId
+          KeyType: HASH
+        - AttributeName: itemId
+          KeyType: RANGE
+
+  SaveOrderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: SaveOrder
+      Description: Saves an order item to the Orders DynamoDB table.
+      CodeUri: src/save-order/
+      Handler: index.handler
+      Environment:
+        Variables:
+          ORDERS_TABLE: !Ref OrdersTable
+      Policies:
+        - DynamoDBWritePolicy:
+            TableName: !Ref OrdersTable
+      Events:
+        CreateOrder:
+          Type: Api
+          Properties:
+            RestApiId: !Ref OrdersApi
+            Path: /orders
+            Method: post
+
+  OrdersWebAcl:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: OrdersApiRateLimit
+      Scope: REGIONAL
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: OrdersApiWebAcl
+      Rules:
+        - Name: RateLimitRule
+          Priority: 0
+          Action:
+            Block: {}
+          Statement:
+            RateBasedStatement:
+              Limit: 1000
+              AggregateKeyType: IP
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: OrdersApiRateLimitRule
+
+  OrdersWebAclAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties:
+      ResourceArn: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/${OrdersApi}/stages/prod"
+      WebACLArn: !GetAtt OrdersWebAcl.Arn
+
+  OrdersDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: OrdersDashboard
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "API Gateway - Count & 4XXError",
+                "region": "${AWS::Region}",
+                "stat": "Sum",
+                "period": 300,
+                "view": "timeSeries",
+                "metrics": [
+                  [ "AWS/ApiGateway", "Count", "ApiName", "OrdersApi", { "stat": "Sum" } ],
+                  [ "AWS/ApiGateway", "4XXError", "ApiName", "OrdersApi", { "stat": "Sum" } ]
+                ]
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda - Invocations & Errors",
+                "region": "${AWS::Region}",
+                "stat": "Sum",
+                "period": 300,
+                "view": "timeSeries",
+                "metrics": [
+                  [ "AWS/Lambda", "Invocations", "FunctionName", "${SaveOrderFunction}", { "stat": "Sum" } ],
+                  [ "AWS/Lambda", "Errors", "FunctionName", "${SaveOrderFunction}", { "stat": "Sum" } ]
+                ]
+              }
+            }
+          ]
+        }
+
+Outputs:
+  OrdersTableName:
+    Description: Name of the Orders DynamoDB table
+    Value: !Ref OrdersTable
+  OrdersTableArn:
+    Description: ARN of the Orders DynamoDB table
+    Value: !GetAtt OrdersTable.Arn
+  SaveOrderFunctionArn:
+    Description: ARN of the SaveOrder Lambda function
+    Value: !GetAtt SaveOrderFunction.Arn
+  OrdersApiEndpoint:
+    Description: Invoke URL for the POST /orders endpoint
+    Value: !Sub "https://${OrdersApi}.execute-api.${AWS::Region}.amazonaws.com/prod/orders"
+  UserPoolId:
+    Description: ID of the Cognito User Pool
+    Value: !Ref OrdersUserPool
+  UserPoolClientId:
+    Description: ID of the Cognito User Pool App Client
+    Value: !Ref OrdersUserPoolClient
+  DashboardUrl:
+    Description: URL of the CloudWatch dashboard
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=OrdersDashboard"
