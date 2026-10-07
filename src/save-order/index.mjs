@@ -1,10 +1,20 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
 
+// --- Initialization (runs once per cold start, reused on warm invokes) ---
+// Clients and config are created at module scope, OUTSIDE the handler, so
+// the connection setup and SDK bootstrap are not repeated on every request.
 const client = new DynamoDBClient({});
-const docClient = DynamoDBDocumentClient.from(client);
+const docClient = DynamoDBDocumentClient.from(client, {
+  marshallOptions: {
+    // Drop undefined attributes instead of erroring, and don't write empty values.
+    removeUndefinedValues: true,
+    convertClassInstanceToMap: false,
+  },
+});
 
 const TABLE_NAME = process.env.ORDERS_TABLE;
+// --- End initialization ---
 
 /**
  * Saves an order item to the Orders DynamoDB table.

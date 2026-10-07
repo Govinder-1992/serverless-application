@@ -4,5 +4,11 @@
   "description": "Lambda function to save orders to the Orders DynamoDB table.",
   "type": "module",
   "main": "index.mjs",
-  "license": "MIT"
+  "license": "MIT",
+  "comment": "AWS SDK v3 is provided by the Lambda runtime, so it is kept in devDependencies only and never bundled into the deployment package.",
+  "dependencies": {},
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/lib-dynamodb": "^3.600.0"
+  }
 }
