@@ -13,6 +13,126 @@ Globals:
     Tracing: Active
 
 Resources:
+  # ---------------------------------------------------------------------------
+  # Networking - DAX is a VPC-only service, so a minimal VPC with two private
+  # subnets is required for both the DAX cluster and the Lambda that uses it.
+  # ---------------------------------------------------------------------------
+  OrdersVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: orders-dax-vpc
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref OrdersVpc
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref OrdersVpc
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+
+  # Security group shared by DAX and Lambda; allows the DAX port (8111) within the group.
+  DaxSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for DAX cluster and Lambda access
+      VpcId: !Ref OrdersVpc
+
+  DaxIngressRule:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref DaxSecurityGroup
+      IpProtocol: tcp
+      FromPort: 8111
+      ToPort: 8111
+      SourceSecurityGroupId: !Ref DaxSecurityGroup
+
+  # VPC endpoint so the VPC-bound Lambda can still reach DynamoDB (write-through target).
+  DynamoDBVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref OrdersVpc
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.dynamodb"
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref PrivateRouteTable
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref OrdersVpc
+
+  Subnet1RouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet1
+
+  Subnet2RouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet2
+
+  # ---------------------------------------------------------------------------
+  # DAX cluster
+  # ---------------------------------------------------------------------------
+  DaxServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: dax.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DaxDynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:BatchWriteItem
+                Resource: !GetAtt OrdersTable.Arn
+
+  DaxSubnetGroup:
+    Type: AWS::DAX::SubnetGroup
+    Properties:
+      SubnetGroupName: orders-dax-subnet-group
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+
+  OrdersDaxCluster:
+    Type: AWS::DAX::Cluster
+    Properties:
+      ClusterName: orders-dax
+      NodeType: dax.t3.small
+      ReplicationFactor: 1
+      IAMRoleARN: !GetAtt DaxServiceRole.Arn
+      SubnetGroupName: !Ref DaxSubnetGroup
+      SecurityGroupIds:
+        - !Ref DaxSecurityGroup
+
   OrdersUserPool:
     Type: AWS::Cognito::UserPool
     Properties:
@@ -39,16 +159,105 @@ Resources:
         - ALLOW_USER_PASSWORD_AUTH
         - ALLOW_REFRESH_TOKEN_AUTH
 
+  # IAM role assumed by API Gateway to read directly from DynamoDB.
+  ApiGatewayDynamoDBRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: apigateway.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: OrdersTableReadAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                  - dynamodb:GetItem
+                Resource: !GetAtt OrdersTable.Arn
+
   OrdersApi:
     Type: AWS::Serverless::Api
     Properties:
       Name: OrdersApi
       StageName: prod
+      # Stage-level caching: provision a cache cluster and cache responses for 300s.
+      CacheClusterEnabled: true
+      CacheClusterSize: "0.5"
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          CachingEnabled: true
+          CacheTtlInSeconds: 300
       Auth:
         DefaultAuthorizer: CognitoAuthorizer
         Authorizers:
           CognitoAuthorizer:
             UserPoolArn: !GetAtt OrdersUserPool.Arn
+      DefinitionBody:
+        openapi: "3.0.1"
+        info:
+          title: OrdersApi
+        paths:
+          /orders:
+            post:
+              responses: {}
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SaveOrderFunction.Arn}/invocations"
+          /orders/{orderId}:
+            get:
+              parameters:
+                - name: orderId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+              responses:
+                "200":
+                  description: Orders for the given orderId
+              # Direct AWS service integration with DynamoDB Query - no Lambda.
+              x-amazon-apigateway-integration:
+                type: aws
+                httpMethod: POST
+                credentials: !GetAtt ApiGatewayDynamoDBRole.Arn
+                uri: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}:dynamodb:action/Query"
+                passthroughBehavior: when_no_templates
+                requestTemplates:
+                  application/json: !Sub |
+                    {
+                      "TableName": "${OrdersTable}",
+                      "KeyConditionExpression": "orderId = :oid",
+                      "ExpressionAttributeValues": {
+                        ":oid": { "S": "$input.params('orderId')" }
+                      }
+                    }
+                responses:
+                  default:
+                    statusCode: "200"
+                    responseTemplates:
+                      application/json: |
+                        #set($items = $input.path('$.Items'))
+                        {
+                          "orderId": "$input.params('orderId')",
+                          "count": $input.path('$.Count'),
+                          "items": [
+                            #foreach($item in $items)
+                            {
+                              "orderId": "$item.orderId.S",
+                              "itemId": "$item.itemId.S"#if($item.createdAt.S != ""),
+                              "createdAt": "$item.createdAt.S"#end
+
+                            }#if($foreach.hasNext),#end
+                            #end
+                          ]
+                        }
 
   OrdersTable:
     Type: AWS::DynamoDB::Table
@@ -76,9 +285,32 @@ Resources:
       Environment:
         Variables:
           ORDERS_TABLE: !Ref OrdersTable
+          DAX_ENDPOINT: !GetAtt OrdersDaxCluster.ClusterDiscoveryEndpoint
+      # Lambda must join the same VPC as the DAX cluster to reach its endpoint.
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref DaxSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
       Policies:
         - DynamoDBWritePolicy:
             TableName: !Ref OrdersTable
+        # Permission to use the DAX cluster.
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dax:GetItem
+                - dax:BatchGetItem
+                - dax:Query
+                - dax:Scan
+                - dax:PutItem
+                - dax:UpdateItem
+                - dax:DeleteItem
+                - dax:BatchWriteItem
+              Resource: !GetAtt OrdersDaxCluster.Arn
+        # VPC-attached Lambda needs ENI management permissions.
+        - VPCAccessPolicy: {}
       Events:
         CreateOrder:
           Type: Api
@@ -177,6 +409,9 @@ Outputs:
   OrdersApiEndpoint:
     Description: Invoke URL for the POST /orders endpoint
     Value: !Sub "https://${OrdersApi}.execute-api.${AWS::Region}.amazonaws.com/prod/orders"
+  GetOrderEndpoint:
+    Description: Invoke URL for the GET /orders/{orderId} endpoint (direct DynamoDB integration)
+    Value: !Sub "https://${OrdersApi}.execute-api.${AWS::Region}.amazonaws.com/prod/orders/{orderId}"
   UserPoolId:
     Description: ID of the Cognito User Pool
     Value: !Ref OrdersUserPool

@@ -1,11 +1,21 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
+import AmazonDaxClient from "amazon-dax-client";
 
 // --- Initialization (runs once per cold start, reused on warm invokes) ---
 // Clients and config are created at module scope, OUTSIDE the handler, so
 // the connection setup and SDK bootstrap are not repeated on every request.
-const client = new DynamoDBClient({});
-const docClient = DynamoDBDocumentClient.from(client, {
+//
+// When DAX_ENDPOINT is set, route DynamoDB operations through the DAX cluster
+// (write-through caching for writes, in-memory acceleration for reads).
+// Otherwise fall back to talking to DynamoDB directly.
+const DAX_ENDPOINT = process.env.DAX_ENDPOINT;
+
+const baseClient = DAX_ENDPOINT
+  ? new AmazonDaxClient({ endpoints: [DAX_ENDPOINT], region: process.env.AWS_REGION })
+  : new DynamoDBClient({});
+
+const docClient = DynamoDBDocumentClient.from(baseClient, {
   marshallOptions: {
     // Drop undefined attributes instead of erroring, and don't write empty values.
     removeUndefinedValues: true,
