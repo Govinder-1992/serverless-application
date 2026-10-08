@@ -13,126 +13,6 @@ Globals:
     Tracing: Active
 
 Resources:
-  # ---------------------------------------------------------------------------
-  # Networking - DAX is a VPC-only service, so a minimal VPC with two private
-  # subnets is required for both the DAX cluster and the Lambda that uses it.
-  # ---------------------------------------------------------------------------
-  OrdersVpc:
-    Type: AWS::EC2::VPC
-    Properties:
-      CidrBlock: 10.0.0.0/16
-      EnableDnsSupport: true
-      EnableDnsHostnames: true
-      Tags:
-        - Key: Name
-          Value: orders-dax-vpc
-
-  PrivateSubnet1:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref OrdersVpc
-      CidrBlock: 10.0.1.0/24
-      AvailabilityZone: !Select [0, !GetAZs ""]
-
-  PrivateSubnet2:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref OrdersVpc
-      CidrBlock: 10.0.2.0/24
-      AvailabilityZone: !Select [1, !GetAZs ""]
-
-  # Security group shared by DAX and Lambda; allows the DAX port (8111) within the group.
-  DaxSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Security group for DAX cluster and Lambda access
-      VpcId: !Ref OrdersVpc
-
-  DaxIngressRule:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties:
-      GroupId: !Ref DaxSecurityGroup
-      IpProtocol: tcp
-      FromPort: 8111
-      ToPort: 8111
-      SourceSecurityGroupId: !Ref DaxSecurityGroup
-
-  # VPC endpoint so the VPC-bound Lambda can still reach DynamoDB (write-through target).
-  DynamoDBVpcEndpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Properties:
-      VpcId: !Ref OrdersVpc
-      ServiceName: !Sub "com.amazonaws.${AWS::Region}.dynamodb"
-      VpcEndpointType: Gateway
-      RouteTableIds:
-        - !Ref PrivateRouteTable
-
-  PrivateRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref OrdersVpc
-
-  Subnet1RouteAssoc:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable
-      SubnetId: !Ref PrivateSubnet1
-
-  Subnet2RouteAssoc:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable
-      SubnetId: !Ref PrivateSubnet2
-
-  # ---------------------------------------------------------------------------
-  # DAX cluster
-  # ---------------------------------------------------------------------------
-  DaxServiceRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: dax.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: DaxDynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:BatchGetItem
-                  - dynamodb:Query
-                  - dynamodb:Scan
-                  - dynamodb:PutItem
-                  - dynamodb:UpdateItem
-                  - dynamodb:DeleteItem
-                  - dynamodb:BatchWriteItem
-                Resource: !GetAtt OrdersTable.Arn
-
-  DaxSubnetGroup:
-    Type: AWS::DAX::SubnetGroup
-    Properties:
-      SubnetGroupName: orders-dax-subnet-group
-      SubnetIds:
-        - !Ref PrivateSubnet1
-        - !Ref PrivateSubnet2
-
-  OrdersDaxCluster:
-    Type: AWS::DAX::Cluster
-    Properties:
-      ClusterName: orders-dax
-      NodeType: dax.t3.small
-      ReplicationFactor: 1
-      IAMRoleARN: !GetAtt DaxServiceRole.Arn
-      SubnetGroupName: !Ref DaxSubnetGroup
-      SecurityGroupIds:
-        - !Ref DaxSecurityGroup
-
   OrdersUserPool:
     Type: AWS::Cognito::UserPool
     Properties:
@@ -285,32 +165,9 @@ Resources:
       Environment:
         Variables:
           ORDERS_TABLE: !Ref OrdersTable
-          DAX_ENDPOINT: !GetAtt OrdersDaxCluster.ClusterDiscoveryEndpoint
-      # Lambda must join the same VPC as the DAX cluster to reach its endpoint.
-      VpcConfig:
-        SecurityGroupIds:
-          - !Ref DaxSecurityGroup
-        SubnetIds:
-          - !Ref PrivateSubnet1
-          - !Ref PrivateSubnet2
       Policies:
         - DynamoDBWritePolicy:
             TableName: !Ref OrdersTable
-        # Permission to use the DAX cluster.
-        - Statement:
-            - Effect: Allow
-              Action:
-                - dax:GetItem
-                - dax:BatchGetItem
-                - dax:Query
-                - dax:Scan
-                - dax:PutItem
-                - dax:UpdateItem
-                - dax:DeleteItem
-                - dax:BatchWriteItem
-              Resource: !GetAtt OrdersDaxCluster.Arn
-        # VPC-attached Lambda needs ENI management permissions.
-        - VPCAccessPolicy: {}
       Events:
         CreateOrder:
           Type: Api
