@@ -59,7 +59,7 @@ Resources:
                 Action:
                   - dynamodb:Query
                   - dynamodb:GetItem
-                Resource: !GetAtt OrdersTable.Arn
+                Resource: !GetAtt OrdersGlobalTable.Arn
 
   OrdersApi:
     Type: AWS::Serverless::Api
@@ -112,7 +112,7 @@ Resources:
                 requestTemplates:
                   application/json: !Sub |
                     {
-                      "TableName": "${OrdersTable}",
+                      "TableName": "${OrdersGlobalTable}",
                       "KeyConditionExpression": "orderId = :oid",
                       "ExpressionAttributeValues": {
                         ":oid": { "S": "$input.params('orderId')" }
@@ -142,10 +142,11 @@ Resources:
   # Global Table: multi-region replicas for disaster recovery and availability.
   # NOTE: converting from AWS::DynamoDB::Table replaces the table (data is not
   # migrated). DynamoDB Streams are required and enabled below.
-  OrdersTable:
+  OrdersGlobalTable:
     Type: AWS::DynamoDB::GlobalTable
     Properties:
-      TableName: Orders
+      # No explicit TableName: CloudFormation auto-generates a unique name so the
+      # new global table does not collide with the old "Orders" table during replace.
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: orderId
@@ -181,10 +182,10 @@ Resources:
       Handler: index.handler
       Environment:
         Variables:
-          ORDERS_TABLE: !Ref OrdersTable
+          ORDERS_TABLE: !Ref OrdersGlobalTable
       Policies:
         - DynamoDBWritePolicy:
-            TableName: !Ref OrdersTable
+            TableName: !Ref OrdersGlobalTable
       Events:
         CreateOrder:
           Type: Api
@@ -273,10 +274,10 @@ Resources:
 Outputs:
   OrdersTableName:
     Description: Name of the Orders DynamoDB table
-    Value: !Ref OrdersTable
+    Value: !Ref OrdersGlobalTable
   OrdersTableArn:
     Description: ARN of the Orders DynamoDB table
-    Value: !GetAtt OrdersTable.Arn
+    Value: !GetAtt OrdersGlobalTable.Arn
   SaveOrderFunctionArn:
     Description: ARN of the SaveOrder Lambda function
     Value: !GetAtt SaveOrderFunction.Arn
