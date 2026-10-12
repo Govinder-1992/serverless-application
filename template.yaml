@@ -139,8 +139,11 @@ Resources:
                           ]
                         }
 
+  # Global Table: multi-region replicas for disaster recovery and availability.
+  # NOTE: converting from AWS::DynamoDB::Table replaces the table (data is not
+  # migrated). DynamoDB Streams are required and enabled below.
   OrdersTable:
-    Type: AWS::DynamoDB::Table
+    Type: AWS::DynamoDB::GlobalTable
     Properties:
       TableName: Orders
       BillingMode: PAY_PER_REQUEST
@@ -154,6 +157,20 @@ Resources:
           KeyType: HASH
         - AttributeName: itemId
           KeyType: RANGE
+      # Streams are mandatory for global tables; capture full before/after images.
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      SSESpecification:
+        SSEEnabled: true
+      Replicas:
+        # Primary region (must match the stack's deployment region).
+        - Region: us-east-1
+          PointInTimeRecoverySpecification:
+            PointInTimeRecoveryEnabled: true
+        # Secondary region for disaster recovery / multi-region availability.
+        - Region: us-west-2
+          PointInTimeRecoverySpecification:
+            PointInTimeRecoveryEnabled: true
 
   SaveOrderFunction:
     Type: AWS::Serverless::Function
