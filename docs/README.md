@@ -5,7 +5,14 @@ infrastructure-as-code with AWS SAM and deployed automatically via GitHub Action
 
 ## Architecture
 
+![AWS Architecture Diagram](aws-architecture.png)
+
+<details>
+<summary>Simplified flow view</summary>
+
 ![Architecture Diagram](architecture.png)
+
+</details>
 
 ### Components
 
