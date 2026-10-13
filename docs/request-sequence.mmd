@@ -1,0 +1,50 @@
+sequenceDiagram
+    autonumber
+    actor Client
+    participant WAF as AWS WAF
+    participant API as API Gateway (prod)
+    participant Cache as Stage Cache (300s)
+    participant Cognito as Cognito User Pool
+    participant Lambda as Lambda SaveOrder
+    participant DDB as DynamoDB Global Table
+
+    Note over Client,DDB: Create an order — POST /orders
+
+    Client->>WAF: POST /orders + JWT + body
+    WAF->>WAF: Rate check (1000 / 5 min per IP)
+    alt rate limit exceeded
+        WAF-->>Client: 403 Blocked
+    else within limit
+        WAF->>API: Forward request
+        API->>Cognito: Validate JWT
+        alt token invalid
+            Cognito-->>API: Unauthorized
+            API-->>Client: 401 Unauthorized
+        else token valid
+            Cognito-->>API: Claims OK
+            API->>Lambda: Invoke (proxy integration)
+            Lambda->>Lambda: Validate orderId & itemId
+            Lambda->>DDB: PutItem (write)
+            DDB->>DDB: Replicate us-east-1 → us-west-2 (streams)
+            DDB-->>Lambda: Write OK
+            Lambda-->>API: 201 Created
+            API-->>Client: 201 { order saved }
+        end
+    end
+
+    Note over Client,DDB: Read an order — GET /orders/{orderId}
+
+    Client->>WAF: GET /orders/123 + JWT
+    WAF->>API: Forward request
+    API->>Cognito: Validate JWT
+    Cognito-->>API: Claims OK
+    alt response cached (within 300s TTL)
+        API->>Cache: Lookup
+        Cache-->>Client: 200 cached result (no backend call)
+    else cache miss
+        API->>DDB: Query via IAM role (direct integration, no Lambda)
+        DDB-->>API: Items
+        API->>API: Response mapping template → clean JSON
+        API->>Cache: Store for 300s
+        API-->>Client: 200 { orders }
+    end

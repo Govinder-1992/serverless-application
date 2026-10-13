@@ -1,0 +1,65 @@
+flowchart TB
+    Client([Client App])
+
+    subgraph Security["Edge & Auth"]
+        WAF["AWS WAF<br/>Rate-based rule<br/>1000 req / 5 min per IP"]
+        Cognito["Cognito User Pool<br/>JWT Authorizer"]
+    end
+
+    subgraph APIGW["API Gateway REST API — OrdersApi (prod stage)"]
+        Cache["Stage Cache<br/>TTL 300s"]
+        POST["POST /orders"]
+        GET["GET /orders/{orderId}"]
+    end
+
+    subgraph Compute["Compute"]
+        Lambda["Lambda: SaveOrder<br/>Node.js 24.x<br/>X-Ray tracing ON<br/>init outside handler"]
+    end
+
+    subgraph DataLayer["DynamoDB Global Table — Orders"]
+        DDBPrimary[("Primary<br/>us-east-1<br/>PK orderId / SK itemId<br/>Streams: NEW_AND_OLD_IMAGES")]
+        DDBReplica[("Replica<br/>us-west-2<br/>Disaster Recovery")]
+    end
+
+    subgraph Observability["Observability"]
+        Dashboard["CloudWatch Dashboard<br/>API Count / 4XXError<br/>Lambda Invocations / Errors"]
+        XRay["AWS X-Ray Traces"]
+    end
+
+    subgraph CICD["CI/CD"]
+        GH["GitHub Actions<br/>push to main → sam deploy<br/>AWS creds via repo secrets"]
+    end
+
+    Client --> WAF --> Cache
+    Cache --> POST
+    Cache --> GET
+    POST -. requires JWT .-> Cognito
+    GET -. requires JWT .-> Cognito
+
+    POST --> Lambda
+    Lambda -->|"PutItem (write)"| DDBPrimary
+    GET -->|"Direct AWS integration<br/>DynamoDB Query via IAM role<br/>(no Lambda)"| DDBPrimary
+
+    DDBPrimary <-->|"Stream-based<br/>replication"| DDBReplica
+
+    Lambda -.-> XRay
+    Lambda -.-> Dashboard
+    APIGW -.-> Dashboard
+
+    GH -. deploys .-> APIGW
+    GH -. deploys .-> Lambda
+    GH -. deploys .-> DataLayer
+
+    classDef sec fill:#ffe8e8,stroke:#d9534f,color:#333
+    classDef api fill:#e8f0ff,stroke:#4a7fd9,color:#333
+    classDef comp fill:#fff4e0,stroke:#e0952b,color:#333
+    classDef data fill:#e8f8ec,stroke:#3faa5a,color:#333
+    classDef obs fill:#f0e8ff,stroke:#8a5ad9,color:#333
+    classDef ci fill:#eef2f5,stroke:#7a8a99,color:#333
+
+    class WAF,Cognito sec
+    class Cache,POST,GET api
+    class Lambda comp
+    class DDBPrimary,DDBReplica data
+    class Dashboard,XRay obs
+    class GH ci
