@@ -173,6 +173,12 @@ Resources:
           PointInTimeRecoverySpecification:
             PointInTimeRecoveryEnabled: true
 
+  # Custom EventBridge bus that carries domain events such as OrderCreated.
+  OrdersEventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: OrdersEventBus
+
   SaveOrderFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -183,9 +189,13 @@ Resources:
       Environment:
         Variables:
           ORDERS_TABLE: !Ref OrdersGlobalTable
+          EVENT_BUS_NAME: !Ref OrdersEventBus
       Policies:
         - DynamoDBWritePolicy:
             TableName: !Ref OrdersGlobalTable
+        # Allow publishing events to the custom bus.
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref OrdersEventBus
       Events:
         CreateOrder:
           Type: Api
@@ -281,6 +291,12 @@ Outputs:
   SaveOrderFunctionArn:
     Description: ARN of the SaveOrder Lambda function
     Value: !GetAtt SaveOrderFunction.Arn
+  OrdersEventBusName:
+    Description: Name of the custom EventBridge event bus
+    Value: !Ref OrdersEventBus
+  OrdersEventBusArn:
+    Description: ARN of the custom EventBridge event bus
+    Value: !GetAtt OrdersEventBus.Arn
   OrdersApiEndpoint:
     Description: Invoke URL for the POST /orders endpoint
     Value: !Sub "https://${OrdersApi}.execute-api.${AWS::Region}.amazonaws.com/prod/orders"
