@@ -7,6 +7,10 @@ infrastructure-as-code with AWS SAM and deployed automatically via GitHub Action
 
 ![AWS Architecture Diagram](aws-architecture.png)
 
+> An editable version using the official draw.io AWS icon library is available at
+> [`aws-architecture.drawio`](aws-architecture.drawio) — open it at
+> [app.diagrams.net](https://app.diagrams.net) or with the draw.io VS Code extension.
+
 <details>
 <summary>Simplified flow view</summary>
 
@@ -21,8 +25,12 @@ infrastructure-as-code with AWS SAM and deployed automatically via GitHub Action
 | Edge | **AWS WAF** | Rate-based rule blocks any IP exceeding 1000 requests per 5-minute window. |
 | Auth | **Cognito User Pool** | JWT authorizer; every API method requires a valid token. |
 | API | **API Gateway REST API** (`OrdersApi`, `prod` stage) | Public entry point with stage-level caching (300s TTL). |
-| Compute | **Lambda `SaveOrder`** (Node.js 24.x) | Validates and writes orders. X-Ray tracing enabled; clients initialized outside the handler. |
+| Compute | **Lambda `SaveOrder`** (Node.js 24.x) | Validates and writes orders, then publishes an `OrderCreated` event. X-Ray tracing enabled; clients initialized outside the handler. |
 | Data | **DynamoDB Global Table** (`Orders`) | `orderId` (PK) + `itemId` (SK), on-demand capacity, streams-based replication to a second region. |
+| Events | **EventBridge custom bus** (`OrdersEventBus`) | Carries domain events; an `OrderCreated` rule routes matching events to SQS. |
+| Queue | **SQS** (`OrderFulfilmentQueue` + DLQ) | Buffers `OrderCreated` events for async processing; failed messages go to a dead-letter queue after 5 attempts. |
+| Async compute | **Lambda `FulfilOrder`** (Node.js 24.x) | Consumes the queue and records fulfilment, with partial batch failure reporting. |
+| Async data | **DynamoDB table** (`OrderFulfilments`) | Stores fulfilment records keyed by `orderId`. |
 | Observability | **CloudWatch Dashboard** + **X-Ray** | API and Lambda metrics plus distributed traces. |
 | CI/CD | **GitHub Actions** | Builds and deploys on every push to `main`. |
 
@@ -41,12 +49,37 @@ Both endpoints sit behind WAF, require a Cognito JWT, and are fronted by the 300
 
 **Create (`POST /orders`):** WAF rate check → Cognito JWT validation → Lambda
 validates the payload → `PutItem` to DynamoDB → write replicates to the secondary
-region via streams → `201 Created`.
+region via streams → an `OrderCreated` event is published to EventBridge →
+`201 Created`. The event publish is non-blocking: if it fails, the order is still
+persisted and the request still succeeds.
 
 **Read (`GET /orders/{orderId}`):** WAF → Cognito → if the response is cached
 (within the 300s TTL) it returns immediately with no backend call; otherwise
 API Gateway queries DynamoDB directly, reshapes the result via a response mapping
 template, caches it, and returns `200`.
+
+## Asynchronous fulfilment pipeline
+
+After an order is saved, processing continues asynchronously so the API responds
+immediately while fulfilment happens in the background:
+
+```
+SaveOrder → EventBridge (OrdersEventBus) → OrderCreated rule → SQS → FulfilOrder → OrderFulfilments table
+                                                                 │
+                                                                 └─(after 5 failures)→ Dead-letter queue
+```
+
+1. `SaveOrder` publishes an `OrderCreated` event (`source: orders.service`,
+   `detail-type: OrderCreated`) to the custom bus.
+2. The `OrderCreated` rule matches that pattern and routes the event to
+   `OrderFulfilmentQueue` (SQS).
+3. `FulfilOrder` is triggered by the queue (batch size 10), unwraps the event,
+   and writes a fulfilment record to the `OrderFulfilments` table.
+4. Messages that fail processing five times are moved to the dead-letter queue
+   for inspection, so a single bad message never blocks the pipeline.
+
+This decouples the two functions: `SaveOrder` stays fast and user-facing, while
+`FulfilOrder` processes work reliably off the queue.
 
 ## Data layer — Global Table
 
@@ -65,14 +98,19 @@ Writes to either region replicate automatically, so data survives a regional out
 serverless/
 ├── template.yaml              # SAM template (all AWS resources)
 ├── samconfig.toml             # SAM deploy settings
-├── src/save-order/
-│   ├── index.mjs              # Lambda handler
+├── src/save-order/            # SaveOrder Lambda (API-facing, publishes events)
+│   ├── index.mjs
 │   └── package.json           # Runtime-only SDK (no bundled deps)
+├── src/fulfil-order/          # FulfilOrder Lambda (SQS consumer)
+│   ├── index.mjs
+│   └── package.json
 ├── .github/workflows/
 │   └── deploy.yml             # CI/CD pipeline
 └── docs/
     ├── README.md              # This file
-    ├── architecture.mmd/.png  # Architecture diagram
+    ├── aws-architecture.drawio    # Editable diagram (official AWS icons)
+    ├── aws-architecture.svg/.png  # AWS-icon architecture diagram
+    ├── architecture.mmd/.png      # Simplified architecture diagram
     └── request-sequence.mmd/.png  # Sequence diagram
 ```
 
