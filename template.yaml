@@ -204,6 +204,98 @@ Resources:
             Path: /orders
             Method: post
 
+  # ---------------------------------------------------------------------------
+  # Asynchronous fulfilment pipeline:
+  #   OrderCreated event -> EventBridge rule -> SQS queue -> FulfilOrder Lambda
+  #   -> Fulfilment DynamoDB table
+  # ---------------------------------------------------------------------------
+
+  # Dead-letter queue for messages that repeatedly fail processing.
+  OrderFulfilmentDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: OrderFulfilmentDLQ
+      MessageRetentionPeriod: 1209600 # 14 days
+
+  # Main queue that buffers OrderCreated events for async processing.
+  OrderFulfilmentQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: OrderFulfilmentQueue
+      VisibilityTimeout: 60
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt OrderFulfilmentDLQ.Arn
+        maxReceiveCount: 5
+
+  # Allow EventBridge to send matched events to the queue.
+  OrderFulfilmentQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref OrderFulfilmentQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt OrderFulfilmentQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt OrderCreatedRule.Arn
+
+  # Rule on the custom bus that routes OrderCreated events to the queue.
+  OrderCreatedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: OrderCreatedToQueue
+      EventBusName: !Ref OrdersEventBus
+      EventPattern:
+        source:
+          - orders.service
+        detail-type:
+          - OrderCreated
+      Targets:
+        - Id: OrderFulfilmentQueueTarget
+          Arn: !GetAtt OrderFulfilmentQueue.Arn
+
+  # New table that stores fulfilment records produced by FulfilOrder.
+  FulfilmentTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: OrderFulfilments
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: orderId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: orderId
+          KeyType: HASH
+
+  # Lambda that consumes the queue and writes a fulfilment record.
+  FulfilOrderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: FulfilOrder
+      Description: Consumes OrderCreated messages from SQS and records fulfilment.
+      CodeUri: src/fulfil-order/
+      Handler: index.handler
+      Environment:
+        Variables:
+          FULFILMENT_TABLE: !Ref FulfilmentTable
+      Policies:
+        - DynamoDBWritePolicy:
+            TableName: !Ref FulfilmentTable
+      Events:
+        FromQueue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt OrderFulfilmentQueue.Arn
+            BatchSize: 10
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+
   OrdersWebAcl:
     Type: AWS::WAFv2::WebACL
     Properties:
@@ -297,6 +389,15 @@ Outputs:
   OrdersEventBusArn:
     Description: ARN of the custom EventBridge event bus
     Value: !GetAtt OrdersEventBus.Arn
+  OrderFulfilmentQueueUrl:
+    Description: URL of the order fulfilment SQS queue
+    Value: !Ref OrderFulfilmentQueue
+  FulfilOrderFunctionArn:
+    Description: ARN of the FulfilOrder Lambda function
+    Value: !GetAtt FulfilOrderFunction.Arn
+  FulfilmentTableName:
+    Description: Name of the OrderFulfilments DynamoDB table
+    Value: !Ref FulfilmentTable
   OrdersApiEndpoint:
     Description: Invoke URL for the POST /orders endpoint
     Value: !Sub "https://${OrdersApi}.execute-api.${AWS::Region}.amazonaws.com/prod/orders"
