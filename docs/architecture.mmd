@@ -21,6 +21,14 @@ flowchart TB
         DDBReplica[("Replica<br/>us-west-2<br/>Disaster Recovery")]
     end
 
+    subgraph Async["Asynchronous Fulfilment Pipeline"]
+        EventBus["EventBridge<br/>OrdersEventBus<br/>rule: OrderCreated"]
+        Queue["SQS<br/>OrderFulfilmentQueue"]
+        DLQ["SQS DLQ<br/>after 5 failures"]
+        Fulfil["Lambda: FulfilOrder<br/>SQS consumer"]
+        FulfilTable[("DynamoDB<br/>OrderFulfilments<br/>PK orderId")]
+    end
+
     subgraph Observability["Observability"]
         Dashboard["CloudWatch Dashboard<br/>API Count / 4XXError<br/>Lambda Invocations / Errors"]
         XRay["AWS X-Ray Traces"]
@@ -42,6 +50,12 @@ flowchart TB
 
     DDBPrimary <-->|"Stream-based<br/>replication"| DDBReplica
 
+    Lambda -->|"OrderCreated event"| EventBus
+    EventBus -->|"routes matched events"| Queue
+    Queue -->|"after 5 fails"| DLQ
+    Queue --> Fulfil
+    Fulfil -->|"PutItem (write)"| FulfilTable
+
     Lambda -.-> XRay
     Lambda -.-> Dashboard
     APIGW -.-> Dashboard
@@ -56,10 +70,12 @@ flowchart TB
     classDef data fill:#e8f8ec,stroke:#3faa5a,color:#333
     classDef obs fill:#f0e8ff,stroke:#8a5ad9,color:#333
     classDef ci fill:#eef2f5,stroke:#7a8a99,color:#333
+    classDef evt fill:#fde8f3,stroke:#e7157b,color:#333
 
     class WAF,Cognito sec
     class Cache,POST,GET api
-    class Lambda comp
-    class DDBPrimary,DDBReplica data
+    class Lambda,Fulfil comp
+    class DDBPrimary,DDBReplica,FulfilTable data
     class Dashboard,XRay obs
     class GH ci
+    class EventBus,Queue,DLQ evt
