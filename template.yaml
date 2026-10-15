@@ -260,6 +260,51 @@ Resources:
         - Id: OrderFulfilmentQueueTarget
           Arn: !GetAtt OrderFulfilmentQueue.Arn
 
+  # ---------------------------------------------------------------------------
+  # Order notifications:
+  #   OrderCreated event -> EventBridge rule -> SNS topic -> subscribers
+  # ---------------------------------------------------------------------------
+
+  # SNS topic that fans out order notifications to subscribers (email, SMS, etc.).
+  OrderNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: OrderNotifications
+      DisplayName: Order Notifications
+
+  # Resource policy allowing EventBridge to publish to the topic.
+  OrderNotificationTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref OrderNotificationTopic
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref OrderNotificationTopic
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt OrderNotificationRule.Arn
+
+  # Rule on the custom bus that publishes OrderCreated events to the SNS topic.
+  OrderNotificationRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: OrderCreatedToNotification
+      EventBusName: !Ref OrdersEventBus
+      EventPattern:
+        source:
+          - orders.service
+        detail-type:
+          - OrderCreated
+      Targets:
+        - Id: OrderNotificationTopicTarget
+          Arn: !Ref OrderNotificationTopic
+
   # New table that stores fulfilment records produced by FulfilOrder.
   FulfilmentTable:
     Type: AWS::DynamoDB::Table
@@ -392,6 +437,9 @@ Outputs:
   OrderFulfilmentQueueUrl:
     Description: URL of the order fulfilment SQS queue
     Value: !Ref OrderFulfilmentQueue
+  OrderNotificationTopicArn:
+    Description: ARN of the order notification SNS topic
+    Value: !Ref OrderNotificationTopic
   FulfilOrderFunctionArn:
     Description: ARN of the FulfilOrder Lambda function
     Value: !GetAtt FulfilOrderFunction.Arn
