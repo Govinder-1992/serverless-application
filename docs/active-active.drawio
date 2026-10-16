@@ -1,0 +1,82 @@
+<mxfile host="app.diagrams.net" type="device">
+  <diagram name="Active-Active Multi-Region" id="orders-aa">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="Orders — Active-Active Multi-Region Architecture" style="text;html=1;align=left;verticalAlign=middle;fontSize=20;fontStyle=1;fontColor=#232F3E;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="720" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Client -->
+        <mxCell id="client" value="Client" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#232F3E;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;aspect=fixed;shape=mxgraph.aws4.users;" vertex="1" parent="1">
+          <mxGeometry x="800" y="70" width="60" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Global Endpoint -->
+        <mxCell id="gep" value="EventBridge Global Endpoint&#10;(Route 53 health check → failover)" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#E7157B;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.eventbridge;" vertex="1" parent="1">
+          <mxGeometry x="800" y="180" width="60" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ===================== PRIMARY REGION ===================== -->
+        <mxCell id="primaryBox" value="PRIMARY — us-east-1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F2F8FF;strokeColor=#4A7FD9;verticalAlign=top;fontStyle=1;fontColor=#4A7FD9;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="60" y="320" width="760" height="300" as="geometry" />
+        </mxCell>
+        <mxCell id="p_waf" value="WAF" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#DD3522;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.waf;" vertex="1" parent="1"><mxGeometry x="90" y="370" width="50" height="50" as="geometry" /></mxCell>
+        <mxCell id="p_api" value="API Gateway" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.api_gateway;" vertex="1" parent="1"><mxGeometry x="190" y="370" width="50" height="50" as="geometry" /></mxCell>
+        <mxCell id="p_intake" value="SQS intake" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.simple_queue_service;" vertex="1" parent="1"><mxGeometry x="300" y="370" width="50" height="50" as="geometry" /></mxCell>
+        <mxCell id="p_save" value="SaveOrder" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;" vertex="1" parent="1"><mxGeometry x="410" y="370" width="50" height="50" as="geometry" /></mxCell>
+        <mxCell id="p_bus" value="EventBus" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.eventbridge;" vertex="1" parent="1"><mxGeometry x="520" y="370" width="50" height="50" as="geometry" /></mxCell>
+        <mxCell id="p_ffq" value="SQS fulfil" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.simple_queue_service;" vertex="1" parent="1"><mxGeometry x="300" y="500" width="50" height="50" as="geometry" /></mxCell>
+        <mxCell id="p_ff" value="FulfilOrder" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;" vertex="1" parent="1"><mxGeometry x="410" y="500" width="50" height="50" as="geometry" /></mxCell>
+        <mxCell id="p_sns" value="SNS" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.simple_notification_service;" vertex="1" parent="1"><mxGeometry x="520" y="500" width="50" height="50" as="geometry" /></mxCell>
+
+        <mxCell id="pe1" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="p_waf" target="p_api"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="pe2" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="p_api" target="p_intake"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="pe3" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="p_intake" target="p_save"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="pe4" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="p_save" target="p_bus"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="pe5" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="p_bus" target="p_ffq"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="pe6" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="p_ffq" target="p_ff"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="pe7" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="p_bus" target="p_sns"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- ===================== SECONDARY REGION ===================== -->
+        <mxCell id="secBox" value="SECONDARY — us-west-2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9F2;strokeColor=#E0952B;verticalAlign=top;fontStyle=1;fontColor=#E0952B;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="860" y="320" width="760" height="300" as="geometry" />
+        </mxCell>
+        <mxCell id="s_waf" value="WAF" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#DD3522;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.waf;" vertex="1" parent="1"><mxGeometry x="890" y="370" width="50" height="50" as="geometry" /></mxCell>
+        <mxCell id="s_api" value="API Gateway" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.api_gateway;" vertex="1" parent="1"><mxGeometry x="990" y="370" width="50" height="50" as="geometry" /></mxCell>
+        <mxCell id="s_intake" value="SQS intake" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.simple_queue_service;" vertex="1" parent="1"><mxGeometry x="1100" y="370" width="50" height="50" as="geometry" /></mxCell>
+        <mxCell id="s_save" value="SaveOrder" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;" vertex="1" parent="1"><mxGeometry x="1210" y="370" width="50" height="50" as="geometry" /></mxCell>
+        <mxCell id="s_bus" value="EventBus" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.eventbridge;" vertex="1" parent="1"><mxGeometry x="1320" y="370" width="50" height="50" as="geometry" /></mxCell>
+        <mxCell id="s_ffq" value="SQS fulfil" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.simple_queue_service;" vertex="1" parent="1"><mxGeometry x="1100" y="500" width="50" height="50" as="geometry" /></mxCell>
+        <mxCell id="s_ff" value="FulfilOrder" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;" vertex="1" parent="1"><mxGeometry x="1210" y="500" width="50" height="50" as="geometry" /></mxCell>
+        <mxCell id="s_sns" value="SNS" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.simple_notification_service;" vertex="1" parent="1"><mxGeometry x="1320" y="500" width="50" height="50" as="geometry" /></mxCell>
+
+        <mxCell id="se1" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="s_waf" target="s_api"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="se2" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="s_api" target="s_intake"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="se3" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="s_intake" target="s_save"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="se4" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="s_save" target="s_bus"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="se5" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="s_bus" target="s_ffq"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="se6" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="s_ffq" target="s_ff"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="se7" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="s_bus" target="s_sns"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- ===================== SHARED DATA TIER ===================== -->
+        <mxCell id="dataBox" value="Shared Data Tier — data-table.yaml" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F8EC;strokeColor=#3FAE5A;verticalAlign=top;fontStyle=1;fontColor=#3FAE5A;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="560" y="680" width="560" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="ddb_p" value="DynamoDB&#10;us-east-1" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#4053D6;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.dynamodb;" vertex="1" parent="1"><mxGeometry x="640" y="720" width="55" height="55" as="geometry" /></mxCell>
+        <mxCell id="ddb_s" value="DynamoDB&#10;us-west-2" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#4053D6;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.dynamodb;" vertex="1" parent="1"><mxGeometry x="985" y="720" width="55" height="55" as="geometry" /></mxCell>
+        <mxCell id="ddb_repl" value="Global Table replication" style="edgeStyle=orthogonalEdgeStyle;html=1;startArrow=block;endArrow=block;strokeColor=#3FAE5A;" edge="1" parent="1" source="ddb_p" target="ddb_s"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- Cross-cutting edges -->
+        <mxCell id="c_ge" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="client" target="gep"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ge_p" value="primary bus" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="gep" target="p_bus"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ge_s" value="failover bus" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;dashed=1;" edge="1" parent="1" source="gep" target="s_bus"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="busrepl" value="managed event replication" style="edgeStyle=orthogonalEdgeStyle;html=1;startArrow=block;endArrow=block;strokeColor=#3FAE5A;" edge="1" parent="1" source="p_bus" target="s_bus"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p_data" value="read/write" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="p_ff" target="ddb_p"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="s_data" value="read/write" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;" edge="1" parent="1" source="s_ff" target="ddb_s"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

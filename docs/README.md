@@ -8,6 +8,9 @@ global endpoint for cross-region failover and a shared DynamoDB global table.
 
 ![Active-Active Multi-Region Architecture](active-active.png)
 
+> An editable version (official draw.io AWS icons) is at
+> [`active-active.drawio`](active-active.drawio).
+
 The application runs active-active across two regions (`us-east-1` primary,
 `us-west-2` secondary). Each region has its own full application stack — API
 Gateway, Lambdas, EventBridge bus (same name in both regions), SQS queues, and
@@ -146,7 +149,8 @@ serverless/
 └── docs/
     ├── README.md              # This file
     ├── active-active.svg/.png     # Multi-region active-active diagram
-    ├── aws-architecture.drawio    # Editable diagram (official AWS icons)
+    ├── active-active.drawio       # Editable multi-region diagram (official AWS icons)
+    ├── aws-architecture.drawio    # Editable single-region diagram (official AWS icons)
     ├── aws-architecture.svg/.png  # Single-region AWS-icon diagram
     ├── architecture.mmd/.png      # Simplified architecture diagram
     └── request-sequence.mmd/.png  # Sequence diagram
