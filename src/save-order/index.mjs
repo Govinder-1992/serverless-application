@@ -1,4 +1,5 @@
 import { DynamoDBClient, ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
+import { DynamoDBClient, ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 import { EventBridgeClient, PutEventsCommand } from "@aws-sdk/client-eventbridge";
 
@@ -14,7 +15,13 @@ const docClient = DynamoDBDocumentClient.from(client, {
   },
 });
 
-const eventBridge = new EventBridgeClient({});
+// Publish through the EventBridge global endpoint when configured, so events
+// fail over automatically between regions. When GLOBAL_ENDPOINT_ID is empty,
+// the client falls back to the regional endpoint.
+const GLOBAL_ENDPOINT_ID = process.env.GLOBAL_ENDPOINT_ID;
+const eventBridge = new EventBridgeClient(
+  GLOBAL_ENDPOINT_ID ? { endpointId: GLOBAL_ENDPOINT_ID } : {}
+);
 
 const TABLE_NAME = process.env.ORDERS_TABLE;
 const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME;

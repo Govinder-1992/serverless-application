@@ -1,9 +1,31 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  SAM template that provisions an Amazon DynamoDB "Orders" table with on-demand
-  (pay-per-request) capacity, a Node.js Lambda function to save orders, and an
-  Amazon API Gateway REST API exposing POST /orders.
+  Regional stack for the Orders serverless application. Deployed independently to
+  the primary and secondary regions to form an active-active, multi-region
+  architecture. Lambdas publish events through an EventBridge global endpoint.
+
+Parameters:
+  GlobalEndpointId:
+    Type: String
+    Default: ""
+    Description: >
+      EventBridge global endpoint ID (e.g. abcde.veo). When empty, SaveOrder
+      publishes directly to the regional bus (used before the global endpoint
+      exists). After the global-endpoint stack is deployed, redeploy both regional
+      stacks with this value so events route through the global endpoint.
+  IsPrimaryRegion:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: >
+      Set to "true" for the primary-region stack (which owns the DynamoDB global
+      table) and "false" for the secondary region.
+
+Conditions:
+  CreateGlobalTable: !Equals [!Ref IsPrimaryRegion, "true"]
 
 Globals:
   Function:
@@ -61,7 +83,7 @@ Resources:
                 Action:
                   - dynamodb:Query
                   - dynamodb:GetItem
-                Resource: !GetAtt OrdersGlobalTable.Arn
+                Resource: !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/OrdersGlobalTable"
         - PolicyName: OrderIntakeQueueSendAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -181,7 +203,7 @@ Resources:
                 requestTemplates:
                   application/json: !Sub |
                     {
-                      "TableName": "${OrdersGlobalTable}",
+                      "TableName": "OrdersGlobalTable",
                       "KeyConditionExpression": "orderId = :oid",
                       "ExpressionAttributeValues": {
                         ":oid": { "S": "$input.params('orderId')" }
@@ -209,13 +231,14 @@ Resources:
                         }
 
   # Global Table: multi-region replicas for disaster recovery and availability.
-  # NOTE: converting from AWS::DynamoDB::Table replaces the table (data is not
-  # migrated). DynamoDB Streams are required and enabled below.
+  # Created ONLY by the primary-region stack (CreateGlobalTable condition); the
+  # secondary region references the same table by its fixed name. A fixed name is
+  # required so both regional stacks can reference the table consistently.
   OrdersGlobalTable:
     Type: AWS::DynamoDB::GlobalTable
+    Condition: CreateGlobalTable
     Properties:
-      # No explicit TableName: CloudFormation auto-generates a unique name so the
-      # new global table does not collide with the old "Orders" table during replace.
+      TableName: OrdersGlobalTable
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: orderId
@@ -257,14 +280,17 @@ Resources:
       Handler: index.handler
       Environment:
         Variables:
-          ORDERS_TABLE: !Ref OrdersGlobalTable
+          ORDERS_TABLE: OrdersGlobalTable
           EVENT_BUS_NAME: !Ref OrdersEventBus
+          # When set, SaveOrder publishes through the EventBridge global endpoint
+          # for automatic cross-region failover. Empty = publish to regional bus.
+          GLOBAL_ENDPOINT_ID: !Ref GlobalEndpointId
       Policies:
         - DynamoDBWritePolicy:
-            TableName: !Ref OrdersGlobalTable
+            TableName: OrdersGlobalTable
         # Read access for the idempotency check (GetItem on duplicate orders).
         - DynamoDBReadPolicy:
-            TableName: !Ref OrdersGlobalTable
+            TableName: OrdersGlobalTable
         # Allow publishing events to the custom bus.
         - EventBridgePutEventsPolicy:
             EventBusName: !Ref OrdersEventBus
@@ -514,10 +540,10 @@ Resources:
 Outputs:
   OrdersTableName:
     Description: Name of the Orders DynamoDB table
-    Value: !Ref OrdersGlobalTable
+    Value: OrdersGlobalTable
   OrdersTableArn:
-    Description: ARN of the Orders DynamoDB table
-    Value: !GetAtt OrdersGlobalTable.Arn
+    Description: ARN of the Orders DynamoDB table (in this region)
+    Value: !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/OrdersGlobalTable"
   SaveOrderFunctionArn:
     Description: ARN of the SaveOrder Lambda function
     Value: !GetAtt SaveOrderFunction.Arn

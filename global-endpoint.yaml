@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Global resources for the active-active Orders application: an EventBridge
+  global endpoint that routes events to the primary-region event bus and fails
+  over to the secondary-region bus based on a Route 53 health check.
+
+  Deploy this stack ONCE, in the PRIMARY region, AFTER both regional stacks have
+  been deployed (so both OrdersEventBus buses exist). It outputs the global
+  endpoint ID, which you then pass back into both regional stacks via the
+  GlobalEndpointId parameter.
+
+Parameters:
+  PrimaryRegion:
+    Type: String
+    Default: us-east-1
+  SecondaryRegion:
+    Type: String
+    Default: us-west-2
+  EventBusName:
+    Type: String
+    Default: OrdersEventBus
+    Description: Name of the regional event bus (identical in both regions).
+
+Resources:
+  # CloudWatch alarm that represents the health of the primary region. The
+  # Route 53 health check below watches this alarm; when it goes ALARM, the
+  # global endpoint fails over to the secondary region.
+  PrimaryHealthAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: OrdersPrimaryRegionHealth
+      AlarmDescription: Health signal for the primary region (EventBridge global endpoint failover trigger).
+      Namespace: AWS/Events
+      MetricName: IngestionToInvocationStartLatency
+      Statistic: Average
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 30000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  # Route 53 health check tied to the alarm above.
+  PrimaryRegionHealthCheck:
+    Type: AWS::Route53::HealthCheck
+    Properties:
+      HealthCheckConfig:
+        Type: CLOUDWATCH_METRIC
+        AlarmIdentifier:
+          Name: !Ref PrimaryHealthAlarm
+          Region: !Ref PrimaryRegion
+        InsufficientDataHealthStatus: LastKnownStatus
+      HealthCheckTags:
+        - Key: Name
+          Value: OrdersPrimaryRegionHealthCheck
+
+  # IAM role EventBridge assumes to replicate events across regions (managed
+  # replication keeps both buses in sync for active-active).
+  EventReplicationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CrossRegionEventReplication
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: events:PutEvents
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:events:${PrimaryRegion}:${AWS::AccountId}:event-bus/${EventBusName}"
+                  - !Sub "arn:${AWS::Partition}:events:${SecondaryRegion}:${AWS::AccountId}:event-bus/${EventBusName}"
+
+  # The EventBridge global endpoint.
+  OrdersGlobalEndpoint:
+    Type: AWS::Events::Endpoint
+    Properties:
+      Name: OrdersGlobalEndpoint
+      RoleArn: !GetAtt EventReplicationRole.Arn
+      EventBuses:
+        - EventBusArn: !Sub "arn:${AWS::Partition}:events:${PrimaryRegion}:${AWS::AccountId}:event-bus/${EventBusName}"
+        - EventBusArn: !Sub "arn:${AWS::Partition}:events:${SecondaryRegion}:${AWS::AccountId}:event-bus/${EventBusName}"
+      RoutingConfig:
+        FailoverConfig:
+          Primary:
+            HealthCheck: !Sub "arn:${AWS::Partition}:route53:::healthcheck/${PrimaryRegionHealthCheck}"
+          Secondary:
+            Route: !Ref SecondaryRegion
+      ReplicationConfig:
+        State: ENABLED
+
+Outputs:
+  GlobalEndpointId:
+    Description: >
+      The global endpoint ID. Pass this to both regional stacks via the
+      GlobalEndpointId parameter so SaveOrder publishes through it.
+    Value: !GetAtt OrdersGlobalEndpoint.EndpointId
+  GlobalEndpointUrl:
+    Description: The global endpoint URL.
+    Value: !GetAtt OrdersGlobalEndpoint.EndpointUrl
