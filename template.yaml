@@ -262,6 +262,9 @@ Resources:
       Policies:
         - DynamoDBWritePolicy:
             TableName: !Ref OrdersGlobalTable
+        # Read access for the idempotency check (GetItem on duplicate orders).
+        - DynamoDBReadPolicy:
+            TableName: !Ref OrdersGlobalTable
         # Allow publishing events to the custom bus.
         - EventBridgePutEventsPolicy:
             EventBusName: !Ref OrdersEventBus

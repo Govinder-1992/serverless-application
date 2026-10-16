@@ -1,5 +1,5 @@
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBClient, ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, PutCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 import { EventBridgeClient, PutEventsCommand } from "@aws-sdk/client-eventbridge";
 
 // --- Initialization (runs once per cold start, reused on warm invokes) ---
@@ -44,24 +44,17 @@ export const handler = async (event) => {
         continue;
       }
 
-      const item = {
-        ...order,
-        orderId: String(order.orderId),
-        itemId: String(order.itemId),
-        createdAt: new Date().toISOString(),
-      };
+      const result = await processOrderIdempotently(order);
 
-      await docClient.send(
-        new PutCommand({
-          TableName: TABLE_NAME,
-          Item: item,
-        })
-      );
-
-      // Publish the OrderCreated event only after the write succeeds.
-      await publishOrderCreated(item);
-
-      console.log("Saved order:", item.orderId);
+      if (result.alreadyProcessed) {
+        // Duplicate: order already exists. Return the stored result and do NOT
+        // re-trigger side effects (no duplicate OrderCreated event).
+        console.log("Order already processed, skipping duplicate:", result.item.orderId);
+      } else {
+        // First time this orderId was seen: publish the side-effect event.
+        await publishOrderCreated(result.item);
+        console.log("Saved order:", result.item.orderId);
+      }
     } catch (err) {
       // Report this record as failed so SQS redelivers only it.
       console.error("Failed to process record", record.messageId, err);
@@ -71,6 +64,59 @@ export const handler = async (event) => {
 
   return { batchItemFailures };
 };
+
+/**
+ * Creates the order idempotently using a DynamoDB conditional write.
+ *
+ * The orderId (partition key) is the idempotency key. The conditional
+ * expression `attribute_not_exists(orderId)` ensures only the first write for a
+ * given order succeeds — this is atomic in DynamoDB, so even if the same event
+ * is processed concurrently, exactly one writer wins and the others see
+ * ConditionalCheckFailedException.
+ *
+ * Returns:
+ *   { alreadyProcessed: false, item }  when this call created the order
+ *   { alreadyProcessed: true,  item }  when the order already existed
+ */
+async function processOrderIdempotently(order) {
+  const item = {
+    ...order,
+    orderId: String(order.orderId),
+    itemId: String(order.itemId),
+    createdAt: new Date().toISOString(),
+    // Explicit processing state stored alongside the order result.
+    processingState: "COMPLETED",
+  };
+
+  try {
+    await docClient.send(
+      new PutCommand({
+        TableName: TABLE_NAME,
+        Item: item,
+        // Only write if no item with this orderId already exists.
+        ConditionExpression: "attribute_not_exists(orderId)",
+      })
+    );
+    return { alreadyProcessed: false, item };
+  } catch (err) {
+    if (
+      err instanceof ConditionalCheckFailedException ||
+      err?.name === "ConditionalCheckFailedException"
+    ) {
+      // Order already processed. Fetch and return the stored result so repeated
+      // requests with the same orderId yield the same outcome.
+      const existing = await docClient.send(
+        new GetCommand({
+          TableName: TABLE_NAME,
+          Key: { orderId: item.orderId, itemId: item.itemId },
+        })
+      );
+      return { alreadyProcessed: true, item: existing.Item ?? item };
+    }
+    // Any other error is transient/unexpected — rethrow so the record is retried.
+    throw err;
+  }
+}
 
 /**
  * Publishes an OrderCreated event to the custom EventBridge bus.
