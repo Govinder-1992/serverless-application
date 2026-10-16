@@ -39,7 +39,9 @@ Resources:
         - ALLOW_USER_PASSWORD_AUTH
         - ALLOW_REFRESH_TOKEN_AUTH
 
-  # IAM role assumed by API Gateway to read directly from DynamoDB.
+  # IAM role assumed by API Gateway for direct service integrations:
+  #   - reading from DynamoDB (GET /orders/{orderId})
+  #   - sending order messages to SQS (POST /orders)
   ApiGatewayDynamoDBRole:
     Type: AWS::IAM::Role
     Properties:
@@ -60,6 +62,30 @@ Resources:
                   - dynamodb:Query
                   - dynamodb:GetItem
                 Resource: !GetAtt OrdersGlobalTable.Arn
+        - PolicyName: OrderIntakeQueueSendAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt OrderIntakeQueue.Arn
+
+  # Intake queue that decouples the API from order processing. API Gateway
+  # writes to this queue; SaveOrder consumes from it asynchronously.
+  OrderIntakeDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: OrderIntakeDLQ
+      MessageRetentionPeriod: 1209600 # 14 days
+
+  OrderIntakeQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: OrderIntakeQueue
+      VisibilityTimeout: 60
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt OrderIntakeDLQ.Arn
+        maxReceiveCount: 5
 
   OrdersApi:
     Type: AWS::Serverless::Api
@@ -83,14 +109,56 @@ Resources:
         openapi: "3.0.1"
         info:
           title: OrdersApi
+        # Request validator: validate body against the schema before integration.
+        x-amazon-apigateway-request-validators:
+          body-only:
+            validateRequestBody: true
+            validateRequestParameters: false
+        components:
+          schemas:
+            OrderRequest:
+              type: object
+              required:
+                - orderId
+                - itemId
+              properties:
+                orderId:
+                  type: string
+                itemId:
+                  type: string
         paths:
           /orders:
             post:
-              responses: {}
+              x-amazon-apigateway-request-validator: body-only
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema:
+                      $ref: "#/components/schemas/OrderRequest"
+              responses:
+                "202":
+                  description: Order accepted for asynchronous processing
+                "400":
+                  description: Invalid request body
+              # Direct AWS service integration with SQS SendMessage - no Lambda.
+              # API Gateway validates the body, enqueues the message, and returns 202.
               x-amazon-apigateway-integration:
+                type: aws
                 httpMethod: POST
-                type: aws_proxy
-                uri: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SaveOrderFunction.Arn}/invocations"
+                credentials: !GetAtt ApiGatewayDynamoDBRole.Arn
+                uri: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}:sqs:path/${AWS::AccountId}/${OrderIntakeQueue.QueueName}"
+                passthroughBehavior: never
+                requestParameters:
+                  integration.request.header.Content-Type: "'application/x-www-form-urlencoded'"
+                requestTemplates:
+                  application/json: "Action=SendMessage&MessageBody=$util.urlEncode($input.body)"
+                responses:
+                  default:
+                    statusCode: "202"
+                    responseTemplates:
+                      application/json: |
+                        { "message": "Order accepted for processing." }
           /orders/{orderId}:
             get:
               parameters:
@@ -197,12 +265,13 @@ Resources:
         - EventBridgePutEventsPolicy:
             EventBusName: !Ref OrdersEventBus
       Events:
-        CreateOrder:
-          Type: Api
+        FromIntakeQueue:
+          Type: SQS
           Properties:
-            RestApiId: !Ref OrdersApi
-            Path: /orders
-            Method: post
+            Queue: !GetAtt OrderIntakeQueue.Arn
+            BatchSize: 10
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
 
   # ---------------------------------------------------------------------------
   # Asynchronous fulfilment pipeline:
@@ -454,6 +523,9 @@ Outputs:
   OrdersEventBusArn:
     Description: ARN of the custom EventBridge event bus
     Value: !GetAtt OrdersEventBus.Arn
+  OrderIntakeQueueUrl:
+    Description: URL of the order intake SQS queue (API Gateway target)
+    Value: !Ref OrderIntakeQueue
   OrderFulfilmentQueueUrl:
     Description: URL of the order fulfilment SQS queue
     Value: !Ref OrderFulfilmentQueue

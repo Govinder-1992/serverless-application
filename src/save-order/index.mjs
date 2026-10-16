@@ -21,48 +21,55 @@ const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME;
 // --- End initialization ---
 
 /**
- * Saves an order item to the Orders DynamoDB table.
+ * Consumes order messages from the intake SQS queue and persists each one.
  *
- * Expects an event body (JSON) containing at least:
+ * The API Gateway → SQS integration enqueues the raw request body, so each
+ * SQS record body is the order JSON containing at least:
  *   - orderId (string)  partition key
  *   - itemId  (string)  sort key
- * Any additional attributes are stored alongside the keys.
+ *
+ * Uses partial batch failure reporting so only failed records are retried;
+ * records that fail repeatedly end up in the intake dead-letter queue.
  */
 export const handler = async (event) => {
-  try {
-    // Support both direct invocation (event is the order) and
-    // API Gateway proxy invocation (order is in event.body).
-    const order =
-      typeof event?.body === "string" ? JSON.parse(event.body) : event?.body ?? event;
+  const batchItemFailures = [];
 
-    if (!order || !order.orderId || !order.itemId) {
-      return response(400, {
-        message: "Request must include both 'orderId' and 'itemId'.",
-      });
+  for (const record of event.Records ?? []) {
+    try {
+      const order = JSON.parse(record.body);
+
+      if (!order || !order.orderId || !order.itemId) {
+        // Malformed message: log and skip (do not retry — it will never succeed).
+        console.warn("Skipping invalid order message:", record.messageId);
+        continue;
+      }
+
+      const item = {
+        ...order,
+        orderId: String(order.orderId),
+        itemId: String(order.itemId),
+        createdAt: new Date().toISOString(),
+      };
+
+      await docClient.send(
+        new PutCommand({
+          TableName: TABLE_NAME,
+          Item: item,
+        })
+      );
+
+      // Publish the OrderCreated event only after the write succeeds.
+      await publishOrderCreated(item);
+
+      console.log("Saved order:", item.orderId);
+    } catch (err) {
+      // Report this record as failed so SQS redelivers only it.
+      console.error("Failed to process record", record.messageId, err);
+      batchItemFailures.push({ itemIdentifier: record.messageId });
     }
-
-    const item = {
-      ...order,
-      orderId: String(order.orderId),
-      itemId: String(order.itemId),
-      createdAt: new Date().toISOString(),
-    };
-
-    await docClient.send(
-      new PutCommand({
-        TableName: TABLE_NAME,
-        Item: item,
-      })
-    );
-
-    // Publish the OrderCreated event only after the write succeeds.
-    await publishOrderCreated(item);
-
-    return response(201, { message: "Order saved.", order: item });
-  } catch (err) {
-    console.error("Failed to save order:", err);
-    return response(500, { message: "Failed to save order." });
   }
+
+  return { batchItemFailures };
 };
 
 /**
@@ -92,12 +99,4 @@ async function publishOrderCreated(order) {
   } catch (err) {
     console.error("Order saved but failed to publish OrderCreated event:", err);
   }
-}
-
-function response(statusCode, body) {
-  return {
-    statusCode,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  };
 }
