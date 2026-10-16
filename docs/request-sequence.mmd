@@ -5,10 +5,12 @@ sequenceDiagram
     participant API as API Gateway (prod)
     participant Cache as Stage Cache (300s)
     participant Cognito as Cognito User Pool
+    participant SQS as SQS OrderIntakeQueue
     participant Lambda as Lambda SaveOrder
     participant DDB as DynamoDB Global Table
+    participant EB as EventBridge
 
-    Note over Client,DDB: Create an order — POST /orders
+    Note over Client,EB: Create an order — POST /orders (asynchronous)
 
     Client->>WAF: POST /orders + JWT + body
     WAF->>WAF: Rate check (1000 / 5 min per IP)
@@ -22,14 +24,26 @@ sequenceDiagram
             API-->>Client: 401 Unauthorized
         else token valid
             Cognito-->>API: Claims OK
-            API->>Lambda: Invoke (proxy integration)
-            Lambda->>Lambda: Validate orderId & itemId
-            Lambda->>DDB: PutItem (write)
-            DDB->>DDB: Replicate us-east-1 → us-west-2 (streams)
-            DDB-->>Lambda: Write OK
-            Lambda-->>API: 201 Created
-            API-->>Client: 201 { order saved }
+            API->>API: Validate body against JSON schema
+            alt body invalid
+                API-->>Client: 400 Bad Request
+            else body valid
+                API->>SQS: SendMessage (direct integration, no Lambda)
+                SQS-->>API: Message queued
+                API-->>Client: 202 Accepted (does not wait)
+            end
         end
+    end
+
+    Note over SQS,EB: Asynchronous processing (off the request path)
+
+    SQS->>Lambda: Deliver batch (event source)
+    Lambda->>DDB: PutItem (write)
+    DDB->>DDB: Replicate us-east-1 → us-west-2 (streams)
+    DDB-->>Lambda: Write OK
+    Lambda->>EB: Publish OrderCreated event
+    alt processing fails 5 times
+        SQS->>SQS: Move message to intake DLQ
     end
 
     Note over Client,DDB: Read an order — GET /orders/{orderId}
