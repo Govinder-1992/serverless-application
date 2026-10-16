@@ -54,7 +54,7 @@ validation → API Gateway validates the body against a JSON schema → sends th
 message to `OrderIntakeQueue` (SQS) → returns **`202 Accepted`** immediately. The
 `SaveOrder` Lambda then consumes the queue, writes to DynamoDB (which replicates
 to the secondary region via streams), and publishes an `OrderCreated` event to
-EventBridge. Messages that fail processing five times move to the intake DLQ. The
+EventBridge. Messages that fail processing three times move to the intake DLQ. The
 client is never blocked on order processing.
 
 **Read (`GET /orders/{orderId}`):** WAF → Cognito → if the response is cached

@@ -13,7 +13,7 @@ flowchart TB
     end
 
     IntakeQueue["SQS<br/>OrderIntakeQueue"]
-    IntakeDLQ["SQS DLQ<br/>after 5 failures"]
+    IntakeDLQ["SQS DLQ<br/>after 3 failures"]
 
     subgraph Compute["Compute"]
         Lambda["Lambda: SaveOrder<br/>Node.js 24.x • SQS consumer<br/>X-Ray tracing ON<br/>init outside handler"]
@@ -50,7 +50,7 @@ flowchart TB
     GET -. requires JWT .-> Cognito
 
     POST -->|"SendMessage<br/>(direct, no Lambda)"| IntakeQueue
-    IntakeQueue -->|"after 5 fails"| IntakeDLQ
+    IntakeQueue -->|"after 3 fails"| IntakeDLQ
     IntakeQueue --> Lambda
     Lambda -->|"PutItem (write)"| DDBPrimary
     GET -->|"Direct AWS integration<br/>DynamoDB Query via IAM role<br/>(no Lambda)"| DDBPrimary

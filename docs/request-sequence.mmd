@@ -42,7 +42,7 @@ sequenceDiagram
     DDB->>DDB: Replicate us-east-1 → us-west-2 (streams)
     DDB-->>Lambda: Write OK
     Lambda->>EB: Publish OrderCreated event
-    alt processing fails 5 times
+    alt processing fails 3 times
         SQS->>SQS: Move message to intake DLQ
     end
 
