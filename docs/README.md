@@ -24,8 +24,9 @@ infrastructure-as-code with AWS SAM and deployed automatically via GitHub Action
 |-------|----------|---------|
 | Edge | **AWS WAF** | Rate-based rule blocks any IP exceeding 1000 requests per 5-minute window. |
 | Auth | **Cognito User Pool** | JWT authorizer; every API method requires a valid token. |
-| API | **API Gateway REST API** (`OrdersApi`, `prod` stage) | Public entry point with stage-level caching (300s TTL). |
-| Compute | **Lambda `SaveOrder`** (Node.js 24.x) | Validates and writes orders, then publishes an `OrderCreated` event. X-Ray tracing enabled; clients initialized outside the handler. |
+| API | **API Gateway REST API** (`OrdersApi`, `prod` stage) | Public entry point with stage-level caching (300s TTL). Validates the `POST /orders` body and enqueues it directly to SQS. |
+| Intake queue | **SQS** (`OrderIntakeQueue` + DLQ) | Decouples the API from order processing; API Gateway writes here and returns `202` immediately. |
+| Compute | **Lambda `SaveOrder`** (Node.js 24.x) | Consumes the intake queue, writes orders, then publishes an `OrderCreated` event. X-Ray tracing enabled; clients initialized outside the handler. |
 | Data | **DynamoDB Global Table** (`Orders`) | `orderId` (PK) + `itemId` (SK), on-demand capacity, streams-based replication to a second region. |
 | Events | **EventBridge custom bus** (`OrdersEventBus`) | Carries domain events; an `OrderCreated` rule routes matching events to SQS. |
 | Queue | **SQS** (`OrderFulfilmentQueue` + DLQ) | Buffers `OrderCreated` events for async processing; failed messages go to a dead-letter queue after 5 attempts. |
@@ -39,8 +40,8 @@ infrastructure-as-code with AWS SAM and deployed automatically via GitHub Action
 
 | Method | Path | Integration | Notes |
 |--------|------|-------------|-------|
-| `POST` | `/orders` | Lambda proxy | Creates an order via the `SaveOrder` function. |
-| `GET` | `/orders/{orderId}` | Direct AWS service integration | Queries DynamoDB directly through an IAM role and mapping templates — no Lambda in the path. |
+| `POST` | `/orders` | Direct AWS service integration → SQS | Validates the body against a JSON schema, sends the message to `OrderIntakeQueue`, and returns `202 Accepted` without waiting for processing — no Lambda in the request path. |
+| `GET` | `/orders/{orderId}` | Direct AWS service integration → DynamoDB | Queries DynamoDB directly through an IAM role and mapping templates — no Lambda in the path. |
 
 Both endpoints sit behind WAF, require a Cognito JWT, and are fronted by the 300s stage cache.
 
@@ -48,11 +49,13 @@ Both endpoints sit behind WAF, require a Cognito JWT, and are fronted by the 300
 
 ![Request Sequence Diagram](request-sequence.png)
 
-**Create (`POST /orders`):** WAF rate check → Cognito JWT validation → Lambda
-validates the payload → `PutItem` to DynamoDB → write replicates to the secondary
-region via streams → an `OrderCreated` event is published to EventBridge →
-`201 Created`. The event publish is non-blocking: if it fails, the order is still
-persisted and the request still succeeds.
+**Create (`POST /orders`) — asynchronous:** WAF rate check → Cognito JWT
+validation → API Gateway validates the body against a JSON schema → sends the
+message to `OrderIntakeQueue` (SQS) → returns **`202 Accepted`** immediately. The
+`SaveOrder` Lambda then consumes the queue, writes to DynamoDB (which replicates
+to the secondary region via streams), and publishes an `OrderCreated` event to
+EventBridge. Messages that fail processing five times move to the intake DLQ. The
+client is never blocked on order processing.
 
 **Read (`GET /orders/{orderId}`):** WAF → Cognito → if the response is cached
 (within the 300s TTL) it returns immediately with no backend call; otherwise

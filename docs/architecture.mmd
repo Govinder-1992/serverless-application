@@ -8,12 +8,15 @@ flowchart TB
 
     subgraph APIGW["API Gateway REST API — OrdersApi (prod stage)"]
         Cache["Stage Cache<br/>TTL 300s"]
-        POST["POST /orders"]
+        POST["POST /orders<br/>validate + enqueue → 202"]
         GET["GET /orders/{orderId}"]
     end
 
+    IntakeQueue["SQS<br/>OrderIntakeQueue"]
+    IntakeDLQ["SQS DLQ<br/>after 5 failures"]
+
     subgraph Compute["Compute"]
-        Lambda["Lambda: SaveOrder<br/>Node.js 24.x<br/>X-Ray tracing ON<br/>init outside handler"]
+        Lambda["Lambda: SaveOrder<br/>Node.js 24.x • SQS consumer<br/>X-Ray tracing ON<br/>init outside handler"]
     end
 
     subgraph DataLayer["DynamoDB Global Table — Orders"]
@@ -46,7 +49,9 @@ flowchart TB
     POST -. requires JWT .-> Cognito
     GET -. requires JWT .-> Cognito
 
-    POST --> Lambda
+    POST -->|"SendMessage<br/>(direct, no Lambda)"| IntakeQueue
+    IntakeQueue -->|"after 5 fails"| IntakeDLQ
+    IntakeQueue --> Lambda
     Lambda -->|"PutItem (write)"| DDBPrimary
     GET -->|"Direct AWS integration<br/>DynamoDB Query via IAM role<br/>(no Lambda)"| DDBPrimary
 
@@ -82,4 +87,4 @@ flowchart TB
     class DDBPrimary,DDBReplica,FulfilTable data
     class Dashboard,XRay obs
     class GH ci
-    class EventBus,Queue,DLQ,SNS evt
+    class EventBus,Queue,DLQ,SNS,IntakeQueue,IntakeDLQ evt

@@ -48,6 +48,11 @@
   <text class="svc-label" x="410" y="263">GET /orders/{orderId}</text>
   <text class="svc-sub" x="410" y="274">direct — no Lambda</text>
 
+  <!-- Intake SQS queue (between API and SaveOrder) -->
+  <rect x="470" y="186" width="44" height="44" rx="8" fill="#e7157b"/>
+  <path d="M481 202 h22 M481 208 h22 M481 214 h22" stroke="#fff" stroke-width="2.5"/>
+  <text class="svc-label" x="492" y="244">SQS Intake</text>
+
   <!-- SaveOrder Lambda -->
   <rect x="545" y="80" width="130" height="90" rx="10" fill="none" stroke="#e0952b" stroke-dasharray="6 4"/>
   <text class="grp-label" x="555" y="98" fill="#e0952b">Compute</text>
@@ -138,8 +143,10 @@
   <path class="flow" d="M213 118 L368 112"/>
   <path class="flow-dash" d="M370 220 L215 222"/>
   <text class="edge-lbl" x="270" y="214">JWT</text>
-  <path class="flow" d="M405 217 L578 135"/>
-  <text class="edge-lbl" x="470" y="150">POST</text>
+  <path class="flow" d="M405 213 L468 208"/>
+  <text class="edge-lbl" x="415" y="200">POST→202</text>
+  <path class="flow" d="M514 200 L578 150"/>
+  <text class="edge-lbl" x="540" y="190">consume</text>
   <path class="flow" d="M495 262 L744 130"/>
   <text class="edge-lbl" x="560" y="240">GET (direct)</text>
   <path class="flow" d="M628 125 L743 118"/>
