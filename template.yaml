@@ -14,19 +14,6 @@ Parameters:
       publishes directly to the regional bus (used before the global endpoint
       exists). After the global-endpoint stack is deployed, redeploy both regional
       stacks with this value so events route through the global endpoint.
-  IsPrimaryRegion:
-    Type: String
-    Default: "true"
-    AllowedValues:
-      - "true"
-      - "false"
-    Description: >
-      Set to "true" for the primary-region stack (which owns the DynamoDB global
-      table) and "false" for the secondary region.
-
-Conditions:
-  CreateGlobalTable: !Equals [!Ref IsPrimaryRegion, "true"]
-
 Globals:
   Function:
     Timeout: 10
@@ -83,7 +70,10 @@ Resources:
                 Action:
                   - dynamodb:Query
                   - dynamodb:GetItem
-                Resource: !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/OrdersGlobalTable"
+                # Wildcard on the table name avoids an early-validation existence
+                # check against a Global Table replica ARN, while staying scoped
+                # to this account/region's DynamoDB tables named OrdersGlobalTable*.
+                Resource: !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/OrdersGlobalTable*"
         - PolicyName: OrderIntakeQueueSendAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -230,40 +220,9 @@ Resources:
                           ]
                         }
 
-  # Global Table: multi-region replicas for disaster recovery and availability.
-  # Created ONLY by the primary-region stack (CreateGlobalTable condition); the
-  # secondary region references the same table by its fixed name. A fixed name is
-  # required so both regional stacks can reference the table consistently.
-  OrdersGlobalTable:
-    Type: AWS::DynamoDB::GlobalTable
-    Condition: CreateGlobalTable
-    Properties:
-      TableName: OrdersGlobalTable
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: orderId
-          AttributeType: S
-        - AttributeName: itemId
-          AttributeType: S
-      KeySchema:
-        - AttributeName: orderId
-          KeyType: HASH
-        - AttributeName: itemId
-          KeyType: RANGE
-      # Streams are mandatory for global tables; capture full before/after images.
-      StreamSpecification:
-        StreamViewType: NEW_AND_OLD_IMAGES
-      SSESpecification:
-        SSEEnabled: true
-      Replicas:
-        # Primary region (must match the stack's deployment region).
-        - Region: us-east-1
-          PointInTimeRecoverySpecification:
-            PointInTimeRecoveryEnabled: true
-        # Secondary region for disaster recovery / multi-region availability.
-        - Region: us-west-2
-          PointInTimeRecoverySpecification:
-            PointInTimeRecoveryEnabled: true
+  # The Orders global table is a SHARED resource owned by data-table.yaml.
+  # This regional stack references it by its fixed name "OrdersGlobalTable" and
+  # by constructed ARNs, so it never tries to create or own the table.
 
   # Custom EventBridge bus that carries domain events such as OrderCreated.
   OrdersEventBus:

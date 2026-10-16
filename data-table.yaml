@@ -1,0 +1,48 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Shared data tier for the active-active Orders application. This stack owns the
+  DynamoDB global table (multi-region) so that the independent regional
+  application stacks can reference it by name without any one of them owning it.
+
+  Deploy this stack ONCE, in the primary region (us-east-1). Both regional
+  application stacks then reference the table "OrdersGlobalTable".
+
+Resources:
+  OrdersGlobalTable:
+    Type: AWS::DynamoDB::GlobalTable
+    # Retain the table if this stack is ever deleted, to protect order data.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: OrdersGlobalTable
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: orderId
+          AttributeType: S
+        - AttributeName: itemId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: orderId
+          KeyType: HASH
+        - AttributeName: itemId
+          KeyType: RANGE
+      # Streams are mandatory for global tables; capture full before/after images.
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      SSESpecification:
+        SSEEnabled: true
+      Replicas:
+        - Region: us-east-1
+          PointInTimeRecoverySpecification:
+            PointInTimeRecoveryEnabled: true
+        - Region: us-west-2
+          PointInTimeRecoverySpecification:
+            PointInTimeRecoveryEnabled: true
+
+Outputs:
+  TableName:
+    Description: Name of the shared Orders global table
+    Value: !Ref OrdersGlobalTable
+  TableArn:
+    Description: ARN of the shared Orders global table (primary region)
+    Value: !GetAtt OrdersGlobalTable.Arn

@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" font-family="Arial, Helvetica, sans-serif">
+  <defs>
+    <style>
+      .svc-label { font-size: 11px; fill: #232f3e; text-anchor: middle; }
+      .svc-sub   { font-size: 9px; fill: #5f6b7a; text-anchor: middle; }
+      .grp-label { font-size: 12px; font-weight: bold; }
+      .flow      { stroke: #37475a; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+      .repl      { stroke: #3fae5a; stroke-width: 2; fill: none; marker-end: url(#arrowg); marker-start: url(#arrowg); }
+      .edge-lbl  { font-size: 9px; fill: #37475a; }
+    </style>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#37475a"/></marker>
+    <marker id="arrowg" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#3fae5a"/></marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="720" fill="#ffffff"/>
+  <text x="30" y="34" font-size="19" font-weight="bold" fill="#232f3e">Orders Application — Active-Active Multi-Region Architecture</text>
+
+  <!-- Client -->
+  <rect x="540" y="60" width="120" height="50" rx="8" fill="#f2f4f6" stroke="#879196"/>
+  <text class="svc-label" x="600" y="82">Client</text>
+  <text class="svc-sub" x="600" y="96">Route 53 latency routing</text>
+
+  <!-- Global Endpoint -->
+  <rect x="500" y="150" width="200" height="54" rx="8" fill="#e7157b"/>
+  <text x="600" y="173" font-size="12" fill="#fff" text-anchor="middle" font-weight="bold">EventBridge Global Endpoint</text>
+  <text x="600" y="190" font-size="9" fill="#fff" text-anchor="middle">Route 53 health check → failover</text>
+
+  <!-- PRIMARY region box -->
+  <rect x="40" y="250" width="520" height="420" rx="12" fill="#f7fbff" stroke="#4a7fd9" stroke-width="2"/>
+  <text class="grp-label" x="60" y="275" fill="#4a7fd9">PRIMARY — us-east-1</text>
+
+  <!-- SECONDARY region box -->
+  <rect x="640" y="250" width="520" height="420" rx="12" fill="#fff9f7" stroke="#e0952b" stroke-width="2"/>
+  <text class="grp-label" x="660" y="275" fill="#e0952b">SECONDARY — us-west-2</text>
+
+  <!-- Helper to draw a region's internals, primary at xBase=40, secondary at xBase=640 -->
+  <!-- PRIMARY internals -->
+  <g>
+    <rect x="70" y="295" width="46" height="46" rx="8" fill="#DD3522"/><text class="svc-label" x="93" y="356">WAF</text>
+    <rect x="150" y="295" width="46" height="46" rx="8" fill="#8c4fff"/><text class="svc-label" x="173" y="356">API GW</text>
+    <rect x="230" y="295" width="46" height="46" rx="8" fill="#e7157b"/><text class="svc-label" x="253" y="356">SQS intake</text>
+    <rect x="320" y="295" width="46" height="46" rx="8" fill="#ed8b00"/><text class="svc-label" x="343" y="356">SaveOrder</text>
+    <rect x="420" y="295" width="46" height="46" rx="8" fill="#e7157b"/><text class="svc-label" x="443" y="356">EventBus</text>
+
+    <rect x="150" y="400" width="46" height="46" rx="8" fill="#e7157b"/><text class="svc-label" x="173" y="461">SQS fulfil</text>
+    <rect x="240" y="400" width="46" height="46" rx="8" fill="#ed8b00"/><text class="svc-label" x="263" y="461">FulfilOrder</text>
+    <rect x="420" y="400" width="46" height="46" rx="8" fill="#e7157b"/><text class="svc-label" x="443" y="461">SNS</text>
+
+    <path class="flow" d="M116 318 L148 318"/>
+    <path class="flow" d="M196 318 L228 318"/>
+    <path class="flow" d="M276 318 L318 318"/>
+    <path class="flow" d="M366 318 L418 318"/>
+    <path class="flow" d="M443 341 L443 398"/>
+    <path class="flow" d="M420 420 L288 423"/>
+    <path class="flow" d="M196 423 L238 423"/>
+  </g>
+
+  <!-- SECONDARY internals (mirror) -->
+  <g>
+    <rect x="670" y="295" width="46" height="46" rx="8" fill="#DD3522"/><text class="svc-label" x="693" y="356">WAF</text>
+    <rect x="750" y="295" width="46" height="46" rx="8" fill="#8c4fff"/><text class="svc-label" x="773" y="356">API GW</text>
+    <rect x="830" y="295" width="46" height="46" rx="8" fill="#e7157b"/><text class="svc-label" x="853" y="356">SQS intake</text>
+    <rect x="920" y="295" width="46" height="46" rx="8" fill="#ed8b00"/><text class="svc-label" x="943" y="356">SaveOrder</text>
+    <rect x="1020" y="295" width="46" height="46" rx="8" fill="#e7157b"/><text class="svc-label" x="1043" y="356">EventBus</text>
+
+    <rect x="750" y="400" width="46" height="46" rx="8" fill="#e7157b"/><text class="svc-label" x="773" y="461">SQS fulfil</text>
+    <rect x="840" y="400" width="46" height="46" rx="8" fill="#ed8b00"/><text class="svc-label" x="863" y="461">FulfilOrder</text>
+    <rect x="1020" y="400" width="46" height="46" rx="8" fill="#e7157b"/><text class="svc-label" x="1043" y="461">SNS</text>
+
+    <path class="flow" d="M716 318 L748 318"/>
+    <path class="flow" d="M796 318 L828 318"/>
+    <path class="flow" d="M876 318 L918 318"/>
+    <path class="flow" d="M966 318 L1018 318"/>
+    <path class="flow" d="M1043 341 L1043 398"/>
+    <path class="flow" d="M1020 420 L888 423"/>
+    <path class="flow" d="M796 423 L838 423"/>
+  </g>
+
+  <!-- Shared data tier -->
+  <rect x="340" y="560" width="520" height="90" rx="12" fill="#e8f8ec" stroke="#3fae5a" stroke-width="2"/>
+  <text class="grp-label" x="360" y="583" fill="#3fae5a">Shared Data Tier (data-table.yaml)</text>
+  <rect x="430" y="595" width="46" height="46" rx="8" fill="#2e73b8"/><text class="svc-label" x="453" y="656">DynamoDB</text>
+  <rect x="720" y="595" width="46" height="46" rx="8" fill="#2e73b8"/><text class="svc-label" x="743" y="656">DynamoDB</text>
+  <text class="svc-sub" x="453" y="590">us-east-1</text>
+  <text class="svc-sub" x="743" y="590">us-west-2</text>
+  <path class="repl" d="M476 618 L718 618"/>
+  <text class="edge-lbl" x="560" y="612" fill="#3fae5a">Global Table stream replication</text>
+
+  <!-- Global endpoint to both event buses -->
+  <path class="flow" d="M540 204 Q460 240 443 293"/>
+  <text class="edge-lbl" x="470" y="250">primary bus</text>
+  <path class="flow" d="M660 204 Q900 240 1043 293"/>
+  <text class="edge-lbl" x="880" y="250">failover bus</text>
+
+  <!-- SaveOrder publishes via global endpoint (both regions) -->
+  <path class="flow" d="M343 295 Q420 150 498 178"/>
+  <text class="edge-lbl" x="400" y="150">publish via global endpoint</text>
+  <path class="flow" d="M943 295 Q780 150 702 178"/>
+
+  <!-- Client to global endpoint -->
+  <path class="flow" d="M600 110 L600 148"/>
+
+  <!-- Both regions' Lambdas to shared table -->
+  <path class="flow" d="M343 341 Q380 480 450 593"/>
+  <text class="edge-lbl" x="360" y="500">read/write</text>
+  <path class="flow" d="M943 341 Q900 480 745 593"/>
+
+  <!-- Managed replication between buses -->
+  <path class="repl" d="M466 318 L1018 318"/>
+  <text class="edge-lbl" x="740" y="312" fill="#3fae5a">managed event replication (active-active)</text>
+</svg>
