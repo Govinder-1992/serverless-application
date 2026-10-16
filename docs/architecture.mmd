@@ -22,11 +22,13 @@ flowchart TB
     end
 
     subgraph Async["Asynchronous Fulfilment Pipeline"]
-        EventBus["EventBridge<br/>OrdersEventBus<br/>rule: OrderCreated"]
+        EventBus["EventBridge<br/>OrdersEventBus<br/>rules: OrderCreated"]
         Queue["SQS<br/>OrderFulfilmentQueue"]
         DLQ["SQS DLQ<br/>after 5 failures"]
         Fulfil["Lambda: FulfilOrder<br/>SQS consumer"]
         FulfilTable[("DynamoDB<br/>OrderFulfilments<br/>PK orderId")]
+        SNS["SNS<br/>OrderNotifications<br/>topic"]
+        Subscribers(["Subscribers<br/>email / SMS / HTTP"])
     end
 
     subgraph Observability["Observability"]
@@ -51,10 +53,12 @@ flowchart TB
     DDBPrimary <-->|"Stream-based<br/>replication"| DDBReplica
 
     Lambda -->|"OrderCreated event"| EventBus
-    EventBus -->|"routes matched events"| Queue
+    EventBus -->|"fulfilment rule"| Queue
     Queue -->|"after 5 fails"| DLQ
     Queue --> Fulfil
     Fulfil -->|"PutItem (write)"| FulfilTable
+    EventBus -->|"notification rule"| SNS
+    SNS -->|"fan-out"| Subscribers
 
     Lambda -.-> XRay
     Lambda -.-> Dashboard
@@ -78,4 +82,4 @@ flowchart TB
     class DDBPrimary,DDBReplica,FulfilTable data
     class Dashboard,XRay obs
     class GH ci
-    class EventBus,Queue,DLQ evt
+    class EventBus,Queue,DLQ,SNS evt

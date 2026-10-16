@@ -31,6 +31,7 @@ infrastructure-as-code with AWS SAM and deployed automatically via GitHub Action
 | Queue | **SQS** (`OrderFulfilmentQueue` + DLQ) | Buffers `OrderCreated` events for async processing; failed messages go to a dead-letter queue after 5 attempts. |
 | Async compute | **Lambda `FulfilOrder`** (Node.js 24.x) | Consumes the queue and records fulfilment, with partial batch failure reporting. |
 | Async data | **DynamoDB table** (`OrderFulfilments`) | Stores fulfilment records keyed by `orderId`. |
+| Notifications | **SNS topic** (`OrderNotifications`) | A second `OrderCreated` rule publishes to this topic, which fans out to subscribers (email, SMS, HTTP). |
 | Observability | **CloudWatch Dashboard** + **X-Ray** | API and Lambda metrics plus distributed traces. |
 | CI/CD | **GitHub Actions** | Builds and deploys on every push to `main`. |
 
@@ -64,22 +65,26 @@ After an order is saved, processing continues asynchronously so the API responds
 immediately while fulfilment happens in the background:
 
 ```
-SaveOrder → EventBridge (OrdersEventBus) → OrderCreated rule → SQS → FulfilOrder → OrderFulfilments table
-                                                                 │
-                                                                 └─(after 5 failures)→ Dead-letter queue
+                                        ┌─ fulfilment rule → SQS → FulfilOrder → OrderFulfilments table
+                                        │                     │
+SaveOrder → EventBridge (OrdersEventBus)┤                     └─(after 5 failures)→ Dead-letter queue
+                                        │
+                                        └─ notification rule → SNS (OrderNotifications) → subscribers
 ```
 
 1. `SaveOrder` publishes an `OrderCreated` event (`source: orders.service`,
    `detail-type: OrderCreated`) to the custom bus.
-2. The `OrderCreated` rule matches that pattern and routes the event to
-   `OrderFulfilmentQueue` (SQS).
+2. Two rules match that same pattern independently:
+   - The **fulfilment rule** routes the event to `OrderFulfilmentQueue` (SQS).
+   - The **notification rule** publishes the event to the `OrderNotifications`
+     SNS topic, which fans out to subscribers (email, SMS, HTTP endpoints).
 3. `FulfilOrder` is triggered by the queue (batch size 10), unwraps the event,
    and writes a fulfilment record to the `OrderFulfilments` table.
 4. Messages that fail processing five times are moved to the dead-letter queue
    for inspection, so a single bad message never blocks the pipeline.
 
-This decouples the two functions: `SaveOrder` stays fast and user-facing, while
-`FulfilOrder` processes work reliably off the queue.
+This decouples the components: `SaveOrder` stays fast and user-facing, while
+fulfilment and notifications happen independently off the event bus.
 
 ## Data layer — Global Table
 
